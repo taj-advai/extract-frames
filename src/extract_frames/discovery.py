@@ -2,7 +2,7 @@ from pathlib import Path
 
 from extract_frames.progress import progress_track
 
-SUPPORTED_VIDEO_SUFFIXES = {".mp4"}
+SUPPORTED_VIDEO_SUFFIXES = {".mp4",".mpeg"}
 
 
 def find_videos(input_dir: Path, show_progress: bool = False) -> list[Path]:

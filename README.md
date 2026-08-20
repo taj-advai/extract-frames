@@ -1,6 +1,6 @@
 # extract-frames
 
-`extract-frames` is a Python CLI for building image-labelling datasets from video folders. It recursively finds `.mp4` and `.MP4` files, extracts a user-selected percentage of frames from each video at the original resolution, and writes the images to a deterministic output folder.
+`extract-frames` is a Python CLI for building image-labelling datasets from video folders. It recursively finds `.mp4`,`.MP4` and `.mpeg` files, extracts a user-selected percentage of frames from each video at the original resolution, and writes the images to a deterministic output folder.
 
 ## Requirements
 
