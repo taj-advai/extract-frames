@@ -41,6 +41,34 @@ This command:
 - Shows console progress while scanning files, processing videos, and extracting frames.
 - Optionally flattens the extracted images into `./dataset-frames` when `--flatten` is provided.
 
+## Group Or Clean Similar Images
+
+After extraction or manual edits, run perceptual hashing on an image directory to find visually similar images. Group mode copies similar images into deterministic group folders and writes a `similar-groups.json` report:
+
+```bash
+uv run extract-frames hash --input ./dataset-frames --output ./similar-frame-groups --group
+```
+
+Cleanup mode copies a cleaned version of the image directory to a new output folder while omitting non-representative similar images:
+
+```bash
+uv run extract-frames hash --input ./dataset-frames --output ./dataset-frames-cleaned --cleanup
+```
+
+Both modes accept a perceptual-hash distance threshold. Lower values are stricter; `0` only matches identical perceptual hashes:
+
+```bash
+uv run extract-frames hash --input ./dataset-frames --output ./similar-frame-groups --group --threshold 3
+```
+
+If you first created grouped output, you can later delete similar images inside those group folders while keeping the first image in each group:
+
+```bash
+uv run extract-frames cleanup-similar ./similar-frame-groups
+```
+
+The original input directory is not modified by `hash --group` or `hash --cleanup`. The standalone `cleanup-similar` command modifies the grouped output folder passed to it.
+
 ## Flatten Extracted Images
 
 The default extraction layout stores frames in one subfolder per source video. To move all extracted images from nested folders into a single root folder, run:
@@ -120,6 +148,13 @@ Show help for the flatten command:
 uv run extract-frames flatten --help
 ```
 
+Show help for perceptual hashing commands:
+
+```bash
+uv run extract-frames hash --help
+uv run extract-frames cleanup-similar --help
+```
+
 ## Validation And Errors
 
 The CLI exits with a non-zero status code when:
@@ -130,8 +165,12 @@ The CLI exits with a non-zero status code when:
 - `--percent` is outside the valid range.
 - No supported videos are found.
 - No frames can be extracted from any discovered video.
+- The hashing input path does not exist or is not a directory.
+- The hashing output path exists but is not a directory.
+- The perceptual-hash threshold is less than `0`.
+- No supported images are found for hashing.
 
-If one video cannot be opened or processed, the CLI prints a warning and continues with the remaining videos.
+If one video cannot be opened or processed, the CLI prints a warning and continues with the remaining videos. If one image cannot be opened or hashed, the hashing command prints a warning and continues with the remaining images.
 
 ## Development
 
