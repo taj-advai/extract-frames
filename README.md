@@ -25,6 +25,12 @@ Run the CLI with an input directory, output directory, and frame percentage:
 uv run extract-frames --input ./raw-videos --output ./dataset-frames --percent 10
 ```
 
+To extract frames and then flatten the output into a single folder in one command, add `--flatten`:
+
+```bash
+uv run extract-frames --input ./raw-videos --output ./dataset-frames --percent 10 --flatten
+```
+
 This command:
 
 - Recursively scans `./raw-videos` for `.mp4` and `.MP4` files.
@@ -33,6 +39,37 @@ This command:
 - Preserves the original frame resolution.
 - Saves frames as `.jpg` files under `./dataset-frames`.
 - Shows console progress while scanning files, processing videos, and extracting frames.
+- Optionally flattens the extracted images into `./dataset-frames` when `--flatten` is provided.
+
+## Flatten Extracted Images
+
+The default extraction layout stores frames in one subfolder per source video. To move all extracted images from nested folders into a single root folder, run:
+
+```bash
+uv run extract-frames flatten ./dataset-frames
+```
+
+This command:
+
+- Recursively finds image files inside subfolders of `./dataset-frames`.
+- Moves those images into `./dataset-frames`.
+- Prefixes filenames with their original relative folder path to avoid collisions.
+- Adds a numeric suffix when a filename still already exists.
+- Removes empty subfolders after images are moved.
+- Leaves non-image files in place.
+
+Supported image extensions for flattening are `.jpg`, `.jpeg`, `.png`, `.bmp`, and `.webp`.
+
+The same flattening logic is also available as a standalone Python function:
+
+```python
+from pathlib import Path
+
+from extract_frames import flatten_images
+
+result = flatten_images(Path("./dataset-frames"))
+print(result.images_moved, result.collisions_renamed)
+```
 
 ## Output Layout
 
@@ -52,18 +89,35 @@ dataset-frames/
 
 Frame filenames are zero-padded so they sort naturally in labelling tools and file explorers.
 
+After flattening, the same output may look like this:
+
+```text
+dataset-frames/
+	session-a_clip_frame_000001.jpg
+	session-a_clip_frame_000002.jpg
+	session-b_clip_frame_000001.jpg
+	session-b_clip_frame_000002.jpg
+```
+
 ## CLI Options
 
 ```text
 --input    Directory to scan for videos.
 --output   Directory where extracted frames are saved.
 --percent  Percentage of frames to extract from each video. Must be > 0 and <= 100.
+--flatten  Flatten extracted images into the output folder after extraction.
 ```
 
 Show help:
 
 ```bash
 uv run extract-frames --help
+```
+
+Show help for the flatten command:
+
+```bash
+uv run extract-frames flatten --help
 ```
 
 ## Validation And Errors
