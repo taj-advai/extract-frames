@@ -4,6 +4,7 @@ from typer.testing import CliRunner
 
 from extract_frames import cli
 from extract_frames.models import ExtractionResult
+from test_perceptual_hashing import checkerboard_pixels, write_png
 
 app = cli.app
 
@@ -141,3 +142,73 @@ def test_cli_can_flatten_after_original_extraction_command(
     assert "flattened" in result.output.lower()
     assert (output_dir / "clip_frame_000001.jpg").is_file()
     assert not (output_dir / "clip" / "frame_000001.jpg").exists()
+
+
+def test_cli_hash_group_writes_similar_images_to_output_folder(tmp_path: Path) -> None:
+    input_dir = tmp_path / "frames"
+    output_dir = tmp_path / "groups"
+    pixels = checkerboard_pixels()
+    write_png(input_dir / "clip-a" / "frame_000001.png", pixels)
+    write_png(input_dir / "clip-b" / "frame_000001.png", pixels)
+
+    result = runner.invoke(
+        app,
+        [
+            "hash",
+            "--input",
+            str(input_dir),
+            "--output",
+            str(output_dir),
+            "--group",
+            "--threshold",
+            "0",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (output_dir / "similar-groups.json").is_file()
+    assert len(list((output_dir / "group_0001").glob("*.png"))) == 2
+    assert (input_dir / "clip-a" / "frame_000001.png").is_file()
+
+
+def test_cli_hash_cleanup_writes_cleaned_output_without_duplicate_images(
+    tmp_path: Path,
+) -> None:
+    input_dir = tmp_path / "frames"
+    output_dir = tmp_path / "cleaned"
+    pixels = checkerboard_pixels()
+    write_png(input_dir / "clip-a" / "frame_000001.png", pixels)
+    write_png(input_dir / "clip-b" / "frame_000001.png", pixels)
+
+    result = runner.invoke(
+        app,
+        [
+            "hash",
+            "--input",
+            str(input_dir),
+            "--output",
+            str(output_dir),
+            "--cleanup",
+            "--threshold",
+            "0",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert len(list(output_dir.rglob("*.png"))) == 1
+    assert len(list(input_dir.rglob("*.png"))) == 2
+
+
+def test_cli_cleanup_similar_removes_grouped_duplicates(tmp_path: Path) -> None:
+    group_dir = tmp_path / "groups" / "group_0001"
+    first_image = group_dir / "a.png"
+    second_image = group_dir / "b.png"
+    group_dir.mkdir(parents=True)
+    first_image.write_bytes(b"image")
+    second_image.write_bytes(b"image")
+
+    result = runner.invoke(app, ["cleanup-similar", str(tmp_path / "groups")])
+
+    assert result.exit_code == 0
+    assert first_image.is_file()
+    assert not second_image.exists()

@@ -1,6 +1,6 @@
 # Project Plan: Extract Frames CLI
 
-Build a Python command-line application named `extract-frames`. The tool recursively finds `.mp4` and `.MP4` videos inside a user-provided directory, extracts a user-defined percentage of frames from each video at the original resolution, and saves the images into a clean output directory ready for dataset labelling.
+Build a Python command-line application named `extract-frames`. The tool recursively finds `.mp4` and `.MP4` videos inside a user-provided directory, extracts a user-defined percentage of frames from each video at the original resolution, and saves the images into a clean output directory ready for dataset labelling. The project should also include focused image-directory utilities that help users inspect, group, and clean extracted frames after manual edits.
 
 ## Non-Negotiable Requirements
 
@@ -14,6 +14,8 @@ Build a Python command-line application named `extract-frames`. The tool recursi
 8. Select frames at regular intervals across each full video.
 9. Save extracted frames into a new labelling-ready directory.
 10. Show console progress bars while scanning and extracting.
+11. Provide post-extraction image utilities for grouping and removing perceptually similar images.
+12. Keep perceptual-hash grouping and removal logic test-driven, deterministic, and reusable outside the CLI.
 
 ## Recommended Dependencies
 
@@ -22,6 +24,8 @@ Runtime dependencies:
 - `typer`: CLI argument parsing, validation, help text, and command structure.
 - `rich`: progress bars, readable status messages, warnings, and summary output.
 - `opencv-python`: video metadata, frame seeking, frame reading, and image writing.
+- `imagehash`: perceptual image hashing based on the Johannes Buchner Python ImageHash implementation.
+- `pillow`: image loading used by perceptual hashing utilities.
 
 Development dependencies:
 
@@ -31,7 +35,7 @@ Development dependencies:
 Add dependencies only with `uv`:
 
 ```bash
-uv add typer rich opencv-python
+uv add typer rich opencv-python imagehash pillow
 uv add --dev pytest ruff
 ```
 
@@ -39,6 +43,8 @@ Run project commands only with `uv`:
 
 ```bash
 uv run extract-frames --input ./videos --output ./frames --percent 10
+uv run extract-frames group-similar --input ./frames --threshold 5 --report ./similar-groups.json
+uv run extract-frames remove-similar --input ./frames --threshold 5 --dry-run
 uv run pytest
 uv run ruff check .
 uv run ruff format .
@@ -62,12 +68,20 @@ extract-frames/
 			extraction.py
 			frame_selection.py
 			output_paths.py
+			image_discovery.py
+			perceptual_hashing.py
+			similarity_groups.py
+			image_cleanup.py
 			progress.py
 			models.py
 	tests/
 		test_discovery.py
 		test_frame_selection.py
 		test_output_paths.py
+		test_image_discovery.py
+		test_perceptual_hashing.py
+		test_similarity_groups.py
+		test_image_cleanup.py
 		test_cli.py
 ```
 
@@ -98,12 +112,15 @@ Responsibilities:
 - Create the output directory if needed.
 - Print the discovered video count.
 - Coordinate discovery, extraction, progress reporting, and final summary.
+- Expose post-extraction utility commands for perceptual-hash grouping and duplicate removal.
 - Exit with a non-zero status code for invalid input, no videos found, or complete extraction failure.
 
 Recommended command:
 
 ```bash
 uv run extract-frames --input ./videos --output ./frames --percent 10
+uv run extract-frames group-similar --input ./frames --threshold 5 --report ./similar-groups.json
+uv run extract-frames remove-similar --input ./frames --threshold 5 --dry-run
 ```
 
 ### `discovery.py`
@@ -172,6 +189,56 @@ frames/
 		frame_000002.jpg
 ```
 
+### `image_discovery.py`
+
+Finds extracted image files recursively for post-processing utilities.
+
+Responsibilities:
+
+- Use `pathlib` recursion to scan an image directory.
+- Match supported image extensions such as `.jpg`, `.jpeg`, and `.png`, including uppercase variants.
+- Return stable, sorted paths for deterministic grouping and deletion behavior.
+- Ignore directories, unsupported files, generated reports, and hidden housekeeping files.
+
+### `perceptual_hashing.py`
+
+Computes perceptual hashes for extracted images.
+
+Responsibilities:
+
+- Use the `imagehash` package, which implements Johannes Buchner's Python perceptual image hashing algorithms.
+- Default to a well-established perceptual hash such as `imagehash.phash` unless tests or requirements justify another algorithm.
+- Load images with `PIL.Image` without modifying or rewriting the source files.
+- Return structured hash records containing the image path and hash value.
+- Continue processing other images when a single image is unreadable, while returning a warning for the failed image.
+- Keep the hashing function pure enough to test with temporary image fixtures.
+
+### `similarity_groups.py`
+
+Groups perceptually similar images from hash records.
+
+Responsibilities:
+
+- Compare perceptual hashes using Hamming distance.
+- Accept a configurable similarity threshold, where lower values are stricter and `0` means identical hashes only.
+- Produce deterministic groups of similar images sorted by path.
+- Avoid duplicate group membership where possible by using a clear grouping strategy, such as connected components over hash-distance matches.
+- Return single-image groups only when explicitly requested; default reports should focus on groups with at least two similar images.
+- Preserve enough metadata for reports, summaries, and tests, including group id, image paths, representative image, and pairwise distances when practical.
+
+### `image_cleanup.py`
+
+Removes perceptually similar images after grouping.
+
+Responsibilities:
+
+- Accept similarity groups produced by `similarity_groups.py`.
+- Keep one deterministic representative image per group by default, such as the lexicographically first path.
+- Remove only non-representative images from each group.
+- Support a dry-run mode that reports what would be deleted without modifying files.
+- Return structured cleanup results listing kept images, removed images, skipped images, and warnings.
+- Never delete files outside the user-provided image directory.
+
 ### `progress.py`
 
 Centralizes Rich console and progress-bar helpers.
@@ -191,6 +258,9 @@ Suggested models:
 
 - `VideoInfo`: source path, relative path, output directory.
 - `ExtractionResult`: source path, frames requested, frames written, success flag, warning message.
+- `ImageHashRecord`: image path, perceptual hash value, success flag, warning message.
+- `SimilarityGroup`: group id, representative image path, similar image paths, optional pairwise distances.
+- `CleanupResult`: kept images, removed images, skipped images, dry-run flag, warning messages.
 
 ## CLI Validation Rules
 
@@ -202,6 +272,10 @@ The CLI should fail early with a clear message when:
 - `percent <= 0`.
 - `percent > 100`.
 - No supported videos are discovered.
+- The image utility input path does not exist.
+- The image utility input path is not a directory.
+- The perceptual-hash threshold is less than `0`.
+- No supported images are discovered for a post-extraction utility command.
 
 The CLI should continue with a warning when:
 
@@ -209,6 +283,47 @@ The CLI should continue with a warning when:
 - A video reports zero frames.
 - A selected frame cannot be read.
 - A frame image cannot be written.
+- A specific image cannot be opened or hashed.
+- A similar image selected for removal no longer exists.
+
+## Post-Extraction Image Utility Rules
+
+The image utilities operate on image directories after extraction and after any user edits to the resulting dataset folder.
+
+### Perceptual Similarity Grouping
+
+For each image directory:
+
+1. Recursively discover supported images in deterministic path order.
+2. Open each image with Pillow and compute a perceptual hash with `imagehash`.
+3. Compare hashes using Hamming distance.
+4. Treat two images as similar when their distance is less than or equal to the configured threshold.
+5. Build deterministic groups of related images.
+6. Write an optional machine-readable report, such as JSON, containing the grouped image paths and distances.
+7. Print a readable summary showing total images scanned, images hashed, groups found, and images with warnings.
+
+Recommended command:
+
+```bash
+uv run extract-frames group-similar --input ./dataset-frames --threshold 5 --report ./similar-groups.json
+```
+
+### Perceptual Similarity Removal
+
+For each image directory:
+
+1. Reuse the same discovery, hashing, and grouping behavior as `group-similar`.
+2. Keep one deterministic representative image per group.
+3. Remove only the remaining images in each group.
+4. Default to `--dry-run` behavior for first-time usage if practical, or strongly expose `--dry-run` in help text.
+5. Print a readable summary showing images kept, images removed, images skipped, and warnings.
+6. Return a non-zero exit code only when the command cannot complete at all, not when individual unreadable images are skipped with warnings.
+
+Recommended command:
+
+```bash
+uv run extract-frames remove-similar --input ./dataset-frames --threshold 5 --dry-run
+```
 
 ## Frame Extraction Rules
 
@@ -238,10 +353,20 @@ Required tests:
 - CLI rejects missing input directories.
 - CLI rejects invalid percentages.
 - CLI exits non-zero when no videos are found.
+- Image discovery finds supported images recursively and ignores unsupported files.
+- Perceptual hashing returns stable hash records for generated test images.
+- Similarity grouping groups identical or near-identical images under a configured threshold.
+- Similarity grouping leaves distinct images ungrouped when their hash distance exceeds the threshold.
+- Cleanup keeps one deterministic representative per group.
+- Cleanup dry-run reports removals without deleting files.
+- Cleanup never removes files outside the requested image directory.
+- CLI rejects invalid image utility inputs and invalid thresholds.
 
 Optional integration test:
 
 - Generate a tiny synthetic video with OpenCV inside a temporary directory, run extraction, and assert that expected image files are written.
+- Generate a small image directory with duplicate and distinct images, run `group-similar`, and assert that the report contains the expected group.
+- Generate a small image directory with duplicate images, run `remove-similar --dry-run`, and assert that no files are deleted.
 
 ## Implementation Milestones
 
@@ -254,14 +379,21 @@ Optional integration test:
 7. Implement OpenCV frame extraction.
 8. Add Rich progress bars and console summaries.
 9. Add focused tests for discovery, frame selection, output paths, and CLI validation.
-10. Update `README.md` with UV-only usage examples.
+10. Add image discovery tests and implementation for extracted image directories.
+11. Add perceptual hashing tests and implementation using `imagehash` and Pillow.
+12. Add similarity grouping tests and implementation with configurable Hamming-distance thresholds.
+13. Add cleanup tests and implementation for dry-run and deletion behavior.
+14. Add CLI tests and commands for `group-similar` and `remove-similar`.
+15. Update `README.md` with UV-only usage examples for extraction, grouping, and removal.
 
 ## Expected User Workflow
 
 ```bash
 uv sync
 uv run extract-frames --input ./raw-videos --output ./dataset-frames --percent 10
+uv run extract-frames group-similar --input ./dataset-frames --threshold 5 --report ./similar-groups.json
+uv run extract-frames remove-similar --input ./dataset-frames --threshold 5 --dry-run
 uv run pytest
 ```
 
-The final output should be a deterministic image dataset folder that can be opened directly in an image labelling tool.
+The final output should be a deterministic image dataset folder that can be opened directly in an image labelling tool, plus optional reports and cleanup utilities for reducing perceptually similar frames after extraction or manual review.
