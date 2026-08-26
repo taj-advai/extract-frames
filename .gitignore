@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Local project planning document
+/PROJECT-STRUCTURE.md
+
 # C extensions
 *.so
 
